@@ -37,7 +37,12 @@ def test_homepage_loads(page) -> None:
         "Possible geo-redirect; verify from the STD that /global is still the entry point."
     )
 
-    assert home.header_is_visible(), (
-        "Homepage header (role=banner) not visible within timeout. "
+    assert "DJI" in home.page_title(), (
+        f"Page title does not contain 'DJI': got {home.page_title()!r}. "
+        "Page may have rendered an error or anti-bot challenge instead. Check the trace."
+    )
+
+    assert home.main_nav_is_visible(), (
+        "Main navigation (Camera Drones link) not visible within timeout. "
         "Check the Allure trace for the actual page state."
     )

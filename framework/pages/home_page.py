@@ -24,10 +24,12 @@ class HomePage(BasePage):
 
     def __init__(self, page: Page) -> None:
         super().__init__(page)
-        # Role-based locator. Preferred over CSS because the header's
-        # hashed class names will change with every DJI deployment, but
-        # role=banner (the <header> element) is stable by spec.
-        self._header = page.get_by_role("banner").first
+        # Anchor on a top-level product category nav link. DJI's <header>
+        # element does NOT carry role=banner (verified by live inspection),
+        # so we anchor on something we can actually see on the page.
+        # "Camera Drones" is a primary product line — stable across
+        # marketing redesigns far more than CSS class names would be.
+        self._main_nav_link = page.get_by_role("link", name="Camera Drones", exact=True).first
 
     @allure.step("Open DJI Global homepage")
     def open(self) -> None:
@@ -38,9 +40,12 @@ class HomePage(BasePage):
             timeout=self._navigation_timeout,
         )
 
-    @allure.step("Verify homepage header is visible")
-    def header_is_visible(self) -> bool:
-        return self.is_visible(self._header)
+    @allure.step("Verify homepage main navigation is visible")
+    def main_nav_is_visible(self) -> bool:
+        return self.is_visible(self._main_nav_link)
+
+    def page_title(self) -> str:
+        return self.page.title()
 
     def current_url(self) -> str:
         return self.page.url
