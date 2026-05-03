@@ -1,7 +1,8 @@
-"""DJI Global homepage — minimal implementation for the Phase 1 smoke test.
+"""DJI Global homepage.
 
-Intentionally small. Only what the smoke test needs. More locators and actions
-will be added as we expand coverage in Phase 2+.
+Owns the homepage's own elements (main nav, hero) and provides an entry
+point to the header search overlay. The overlay itself is a Component
+(framework/components/search_overlay.py) because it appears across pages.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import allure
 from playwright.sync_api import Page
 
+from framework.components.search_overlay import SearchOverlay
 from framework.config import ConfigReader
 from framework.logger import get_logger
 from framework.pages.base_page import BasePage
@@ -31,6 +33,11 @@ class HomePage(BasePage):
         # marketing redesigns far more than CSS class names would be.
         self._main_nav_link = page.get_by_role("link", name="Camera Drones", exact=True).first
 
+        # Header search trigger. The <a> tag has aria-label="Search" — the
+        # most stable hook because aria-label is an accessibility commitment
+        # that doesn't change with visual redesigns.
+        self._search_trigger = page.get_by_role("link", name="Search", exact=True)
+
     @allure.step("Open DJI Global homepage")
     def open(self) -> None:
         log.info("Navigating to %s", self._base_url)
@@ -43,6 +50,16 @@ class HomePage(BasePage):
     @allure.step("Verify homepage main navigation is visible")
     def main_nav_is_visible(self) -> bool:
         return self.is_visible(self._main_nav_link)
+
+    @allure.step("Open header search overlay")
+    def open_search_overlay(self) -> SearchOverlay:
+        """Click the header magnifying glass and return the overlay component."""
+        self.click(self._search_trigger)
+        overlay = SearchOverlay(self.page)
+        # Wait for the input to be ready before returning, so callers can
+        # immediately type without an extra wait_for in every test.
+        overlay.wait_for_visible(overlay._search_input)
+        return overlay
 
     def page_title(self) -> str:
         return self.page.title()
