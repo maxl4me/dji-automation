@@ -48,10 +48,11 @@ class SearchResultsPage(BasePage):
         self._product_tab = page.locator('li.tab[data-item="product"]')
         self._product_count_text = self._product_tab.locator("span.num")
 
-        # No-results state. We anchor on the visible heading text rather
-        # than a class name. If DJI ever changes the wording, our test
-        # message tells us exactly what to update.
-        self._no_results_heading = page.get_by_text("Sorry, no results were found.", exact=True)
+        # No-results container. The empty-state UI is rendered by JS *after*
+        # initial DOM load — anchoring on the semantic class .no-data-title
+        # is more reliable than text matching for dynamically inserted content.
+        # The class name is stable (no build hash), so this is durable.
+        self._no_results_heading = page.locator("div.no-data-title")
 
     @allure.step("Open search results directly: {query}")
     def goto(self, query: str) -> None:
