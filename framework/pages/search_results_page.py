@@ -59,14 +59,18 @@ class SearchResultsPage(BasePage):
         self._product_tab = page.locator('li.tab[data-item="product"]')
         self._product_count_text = self._product_tab.locator("span.num")
 
+        # First product result's "Learn more" link. id="link-product-more"
+        # is repeated across results, so we scope to the first product
+        # item and pick its "Learn more" link.
+        self._first_result_link = page.locator("div.product-item").first.locator(
+            "a#link-product-more"
+        )
+
     # ---------------------------------------------------------------- waits
 
     @allure.step("Wait for results to settle")
     def wait_for_results_settled(self) -> None:
-        """Wait until DJI's backend has answered: populated count OR no-data block.
-
-        See module docstring for why we can't just wait on the product tab.
-        """
+        """Wait until DJI's backend has answered: populated count OR no-data block."""
         log.info("Waiting for results to settle")
         self.page.wait_for_function(_SETTLE_PREDICATE, timeout=self._navigation_timeout)
 
@@ -78,8 +82,27 @@ class SearchResultsPage(BasePage):
         url = f"{self._base_url}/search?q={quote(query)}"
         log.info("Navigating directly to %s", url)
         self.page.goto(url, wait_until="domcontentloaded", timeout=self._navigation_timeout)
-        # Always settle before returning — callers shouldn't have to remember.
         self.wait_for_results_settled()
+
+    @allure.step("Click first product result")
+    def click_first_result(self) -> None:
+        """Click the 'Learn more' link of the first product result.
+
+        Caller is responsible for asserting the destination (ProductPage).
+
+        Note on wait_until: media-heavy product pages can take 30+ seconds
+        for the full 'load' event (images, video, analytics). We wait only
+        for 'domcontentloaded' — DOM ready, JS can run — and let the
+        caller's element-level waits handle the rest. This matches what
+        goto() does throughout the framework.
+        """
+        log.info("Clicking first product result")
+        self.wait_for_visible(self._first_result_link)
+        with self.page.expect_navigation(
+            wait_until="domcontentloaded",
+            timeout=self._navigation_timeout,
+        ):
+            self.click(self._first_result_link)
 
     # ---------------------------------------------------------------- queries
 
@@ -89,8 +112,6 @@ class SearchResultsPage(BasePage):
 
         Assumes wait_for_results_settled has been called (goto() does this).
         """
-        # If no-data is visible, there are no products — return 0 without
-        # trying to parse a tab that won't be populated.
         if self._eval_offset_height("div.no-data") > 0:
             return 0
 
@@ -105,12 +126,7 @@ class SearchResultsPage(BasePage):
 
     @allure.step("Check no-results state")
     def is_no_results_shown(self) -> bool:
-        """True if the empty-state block is visible.
-
-        Assumes wait_for_results_settled has already been called. Reads the
-        layout state directly via offsetHeight (the ground-truth signal —
-        non-zero means the browser laid out the element).
-        """
+        """True if the empty-state block is visible."""
         return self._eval_offset_height("div.no-data") > 0
 
     @allure.step("Read search input value")

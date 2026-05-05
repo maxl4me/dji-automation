@@ -48,13 +48,19 @@ class SearchOverlay(BasePage):
 
         Note: the form has target="_blank" in markup, but programmatic
         submission stays in the same tab. We rely on the same-tab behavior.
+
+        wait_until="domcontentloaded" matches the rest of the framework —
+        we wait only until the DOM is parsed and JS can run, not for every
+        last analytics script and image to finish (the 'load' event), which
+        on DJI's media-heavy results page can take 30+ seconds.
         """
         log.info("Submitting search (same-tab navigation)")
         self.press(self._search_input, "Enter")
-        # Wait for navigation to /search to complete before returning. Using a
-        # URL-pattern wait is more robust than wait_for_load_state because it
-        # confirms WE are on the right URL, not just that some load completed.
-        self.page.wait_for_url("**/search?**", timeout=self._navigation_timeout)
+        self.page.wait_for_url(
+            "**/search?**",
+            wait_until="domcontentloaded",
+            timeout=self._navigation_timeout,
+        )
 
     def is_open(self) -> bool:
         return self.is_visible(self._search_input)
