@@ -9,7 +9,7 @@ description = "UI automation framework for the DJI Global storefront (learning/p
 requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "MIT" }
-authors = [{ name = "Your Name" }]
+authors = [{ name = "Max Rybkin" }]
 
 dependencies = [
     "playwright==1.58.0",
