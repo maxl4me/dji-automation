@@ -1,0 +1,100 @@
+# Runs the test suite on every push and PR.
+#
+# Stages:
+#   1. Check out the code
+#   2. Set up Python 3.12
+#   3. Cache pip dependencies (warm cache speeds up subsequent runs significantly)
+#   4. Install the framework + dev dependencies
+#   5. Cache Playwright's Chromium binary (~200MB, big speedup on cache hit)
+#   6. Install Chromium and its system libs
+#   7. Run the suite headless
+#   8. On any outcome: upload Allure results as an artifact
+#   9. On failure: also upload Playwright traces and screenshots
+#
+# Why headless: GitHub runners have no display server. Headless is also
+# closer to how a real CI/production environment runs.
+#
+# Why this is single-stage (no separate lint job): solo project, small suite,
+# pre-commit already covers lint locally. Adding a lint stage here would
+# double the runtime for marginal value.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Allow manual runs from the Actions tab — useful when DJI is flaky and
+  # we want to re-run without making a no-op commit.
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Pytest + Playwright (Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # Caches ~/.cache/pip keyed on pyproject.toml hash.
+          # Cache miss on first run, hit on every subsequent run unless deps change.
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install framework + dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      # Caching the Playwright browser binary itself. ~200MB Chromium,
+      # downloads in 30+ seconds without a cache. Key includes Playwright
+      # version so a Playwright upgrade busts the cache automatically.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pyproject.toml') }}
+
+      - name: Install Chromium (binary)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium
+
+      - name: Install Chromium system libs
+        # Always run — system libs aren't cached, and apt is fast.
+        run: playwright install-deps chromium
+
+      - name: Run tests (headless)
+        env:
+          # Override config.ini at runtime — same mechanism we use locally.
+          DJI_BROWSER__HEADLESS: "true"
+        run: pytest -v
+
+      - name: Upload Allure results
+        # if: always() ensures this runs even when tests fail. Without it,
+        # we'd lose visibility into what failed.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results/
+          retention-days: 14
+          # if-no-files-found: warn — don't fail the workflow if the suite
+          # crashed before producing any results.
+          if-no-files-found: warn
+
+      - name: Upload Playwright traces (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: playwright-traces/
+          retention-days: 14
+          if-no-files-found: ignore
