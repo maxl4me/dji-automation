@@ -2,7 +2,7 @@
 
 **Project:** DJI Global Storefront — UI Automation Framework
 **Target Application:** https://www.dji.com/global
-**Author:** [Your Name]
+**Author:** Max Rybkin
 **Date:** 2026-04-23
 **Version:** 0.2 (Draft)
 **Status:** Pre-implementation
