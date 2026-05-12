@@ -4,19 +4,23 @@ Two tests, two concerns:
 
   1. test_product_page_loads_directly — direct URL navigation. Verifies
      the product page renders with the expected title and Buy Now action.
-     Fast and isolated. Doesn't depend on search.
+
+     SKIPPED IN CI: DJI's geo-redirect strips the /global path from
+     non-Israel IPs and routes /global/<slug> back to the regional
+     homepage. Direct product URL navigation only works from an Israel
+     IP. This test is preserved for local development but cannot run
+     in GitHub Actions (Azure West US runners) without an Israel-region
+     proxy. See docs/STP.md §9 (KI-002).
 
   2. test_search_result_navigates_to_product_page — full UI journey from
-     search → click first result → product page. Proves the navigation
-     contract between SearchResultsPage and ProductPage works end to end.
-
-We pick a flagship product (DJI Mavic 4 Pro) as the test target. If
-DJI ever discontinues it, the test fails loudly and we update the slug.
-That's a known maintenance cost of testing against a real, evolving
-storefront — and a deliberate trade for not running our own staging.
+     search → click first result → product page. This works regardless
+     of region because we don't pin the destination URL; we let DJI
+     decide which product page the click leads to.
 """
 
 from __future__ import annotations
+
+import os
 
 import allure
 import pytest
@@ -29,8 +33,23 @@ from framework.pages.search_results_page import SearchResultsPage
 _TEST_PRODUCT_SLUG = "mavic-4-pro"
 _TEST_PRODUCT_NAME = "DJI Mavic 4 Pro"
 
+# CI environments (GitHub Actions, Jenkins, etc.) typically set this env var.
+# We use this to skip tests that require a specific request-IP geography.
+_IS_CI = os.environ.get("CI", "").lower() == "true"
+
 
 @pytest.mark.regression
+@pytest.mark.skipif(
+    _IS_CI,
+    reason=(
+        "DJI strips /global from URLs requested by non-Israel IPs and "
+        "redirects /global/<slug> to the regional homepage. Direct product "
+        "URL navigation only works from Israel-region IPs. CI runners (Azure "
+        "West US) cannot reach product pages this way. See STP §9 KI-002. "
+        "Test runs locally from Israel; the search→product journey test "
+        "covers the same surface area in any region."
+    ),
+)
 @allure.title("Product page loads directly and renders expected elements")
 @allure.description(
     "Navigate directly to /global/mavic-4-pro. Verify the product title in the "
@@ -71,8 +90,9 @@ def test_search_result_navigates_to_product_page(page) -> None:
     results.wait_for_results_settled()
     results.click_first_result()
 
-    # We don't pin the exact slug — it depends on what DJI ranks first
-    # for "mavic" today. We assert on the product-page contract instead.
+    # We don't pin the exact slug or URL — it depends on what DJI ranks
+    # first for "mavic" today *and* on the runner's region. We assert on
+    # the product-page contract instead.
     product = ProductPage(page)
     product.wait_for_visible(product._product_title)  # sticky nav title is our sentinel
 

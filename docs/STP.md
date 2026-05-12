@@ -3,9 +3,9 @@
 **Project:** DJI Global Storefront — UI Automation Framework
 **Target Application:** https://www.dji.com/global
 **Author:** Max Rybkin
-**Date:** 2026-05-05
-**Version:** 0.1 (Draft)
-**Status:** Phase 2 in progress
+**Date:** 2026-05-11
+**Version:** 0.2 (Draft)
+**Status:** Phase 2 in progress, CI online
 **Companion document:** [STD.md](STD.md)
 
 ---
@@ -44,13 +44,14 @@ In one sentence: the suite covers public, unauthenticated UI flows on `dji.com/g
 
 | Item | Value |
 |---|---|
-| Application URL | `https://www.dji.com/global` |
+| Application URL | `https://www.dji.com/global` (Israel) / `https://www.dji.com/` (US, geo-redirected) |
 | Application environment | Production (no staging available; see STD §7) |
 | Browser | Chromium (Playwright bundled) |
-| OS for execution | Ubuntu 24.04 LTS (developer machine); CI environment TBD |
-| Python | 3.11+ (3.12.3 in current dev environment) |
-| Headless mode | Off by default (`headless = false`). Override per run with `DJI_BROWSER__HEADLESS=true` env var. |
-| Region | English `/global` route only |
+| OS for local execution | Ubuntu 24.04 LTS (developer machine) |
+| OS for CI execution | Ubuntu 24.04 LTS (GitHub Actions, Azure West US runner) |
+| Python | 3.11+ (3.12.3 local / 3.12.13 in CI) |
+| Headless mode | Off locally (`headless = false`). Forced on in CI via `DJI_BROWSER__HEADLESS=true`. |
+| Region | English routes only. DJI's geo-redirect means CI sees the US-regional homepage; local runs from Israel see `/global`. |
 
 ## 5. Test Data Strategy
 
@@ -69,13 +70,13 @@ Each test below includes a stable test ID for cross-referencing. IDs are not enf
 
 | Test ID | Title | Severity | Status | File |
 |---|---|---|---|---|
-| TC-SMK-001 | DJI Global homepage loads and renders the header | Blocker | Passing | `tests/smoke/test_homepage_smoke.py` |
+| TC-SMK-001 | DJI homepage loads and renders the main navigation | Blocker | Passing | `tests/smoke/test_homepage_smoke.py` |
 
 **TC-SMK-001 — Homepage smoke**
 - **Preconditions:** Network reachable; Chromium installed; framework installed in editable mode.
-- **Steps:** Navigate to `dji.com/global`. Verify URL contains `/global`. Verify page title contains "DJI". Verify the "Camera Drones" nav link is visible.
+- **Steps:** Navigate to `dji.com/global`. Verify URL is on a `dji.com` domain. Verify page title contains "DJI". Verify the "Camera Drones" nav link is visible.
 - **Expected:** All three assertions pass within 15s navigation timeout.
-- **Notes:** Header is anchored on a known nav link, not on `role="banner"` (DJI's `<header>` does not carry the ARIA banner role; verified via DevTools).
+- **Notes:** URL assertion is region-tolerant (`dji.com` rather than `/global`) because DJI redirects per request IP. The main-nav assertion is the strongest signal that we're on a real DJI page regardless of region.
 
 ### 6.2 Search (`tests/search/`)
 
@@ -91,11 +92,7 @@ Each test below includes a stable test ID for cross-referencing. IDs are not enf
 - **Expected:** URL contains `/search?q=mavic`. Product result count > 0.
 - **Notes:** The form's `target="_blank"` markup does not apply for programmatic submissions; navigation is same-tab.
 
-**TC-SCH-002 — No-results empty state** *(skipped)*
-- **Preconditions:** None (direct URL navigation).
-- **Steps:** Navigate to `/search?q=<random_uuid>`. Verify the "Sorry, no results were found." block is visible. Verify product count is 0.
-- **Expected:** Both assertions pass.
-- **Skip reason:** DJI's no-results page exhibits a layout-timing race that defeats both Playwright's visibility check and a direct `offsetHeight` poll. Multiple iterations of locator and wait strategy did not produce a stable test. Skipped rather than carry a flaky test. See §9.
+**TC-SCH-002 — No-results empty state** *(skipped — see §9 KI-001)*
 
 **TC-SCH-003 — Query persists in input**
 - **Preconditions:** None (direct URL navigation).
@@ -107,20 +104,20 @@ Each test below includes a stable test ID for cross-referencing. IDs are not enf
 
 | Test ID | Title | Severity | Status | File |
 |---|---|---|---|---|
-| TC-PDP-001 | Product page loads directly and renders expected elements | Critical | Passing | `tests/product/test_product_page.py` |
-| TC-PDP-002 | Search result click navigates to a product page | Critical | Passing | `tests/product/test_product_page.py` |
+| TC-PDP-001 | Product page loads directly and renders expected elements | Critical | Passing locally / **Skipped in CI** (see §9 KI-002) | `tests/product/test_product_page.py` |
+| TC-PDP-002 | Search result click navigates to a product page | Critical | Passing (local + CI) | `tests/product/test_product_page.py` |
 
 **TC-PDP-001 — Direct product page load**
-- **Preconditions:** None.
+- **Preconditions:** Execution from Israel-region IP (see §9 KI-002).
 - **Steps:** Navigate to `/global/mavic-4-pro`. Read product title from the sticky sub-nav. Verify Buy Now action is visible.
 - **Expected:** URL contains `mavic-4-pro`. Title contains "DJI Mavic 4 Pro". Buy Now is visible.
-- **Notes:** If DJI discontinues the Mavic 4 Pro, this test will fail loudly; update `_TEST_PRODUCT_SLUG` in the test module.
+- **Notes:** Skipped automatically in CI environments (when `CI=true` is set). If DJI discontinues the Mavic 4 Pro, this test will fail loudly locally; update `_TEST_PRODUCT_SLUG`.
 
 **TC-PDP-002 — Search → product journey**
 - **Preconditions:** Homepage loads; search returns ≥1 result for `mavic`.
 - **Steps:** Open homepage. Search `mavic`. Click the first result. Wait for product page sub-nav title to render.
 - **Expected:** Product title contains "DJI". Buy Now is visible.
-- **Notes:** Test does not pin the destination slug — DJI's ranking for `mavic` may change. The contract is "click a result → land on a product page," not "click → land on Mavic 4 Pro specifically."
+- **Notes:** Test does not pin the destination slug — DJI's ranking for `mavic` may change *and* the destination URL pattern differs by region. The contract is "click a result → land on a product page," not "click → land on a specific product." This test passes from any region.
 
 ## 7. Execution
 
@@ -149,11 +146,26 @@ pytest -v
 DJI_BROWSER__HEADLESS=true pytest
 ```
 
-### 7.2 Expected runtimes
+### 7.2 CI execution
+
+Automatic on every push to `main` and on PRs targeting `main`. Also triggerable manually from the GitHub Actions tab.
+
+```yaml
+# Workflow: .github/workflows/tests.yml
+# - Ubuntu 24.04 runner (Azure West US region)
+# - Python 3.12
+# - Chromium headless
+# - Pip + Playwright browser caching
+# - Allure results + traces uploaded as artifacts on every run
+```
+
+CI runtime: ~2 minutes cold (no cache), ~1 minute warm (caches hit).
+
+### 7.3 Expected runtimes
 
 Measured on a typical broadband connection, Chromium headed:
 
-| Suite | Tests | Time |
+| Suite | Tests | Time (local) |
 |---|---|---|
 | Smoke only | 1 | ~5s |
 | Search only | 3 (1 skipped) | ~12s |
@@ -162,12 +174,14 @@ Measured on a typical broadband connection, Chromium headed:
 
 Runtimes scale with network latency. A slow connection can extend full-suite time to 60s+. Tests are not parallelized in v1 (Phase 5 deliverable).
 
-### 7.3 Reporting
+### 7.4 Reporting
 
-After any run:
+After any local run:
 ```bash
 make allure-serve   # opens the report in a browser
 ```
+
+After a CI run: download the `allure-results` artifact from the workflow run page, then unzip and serve locally with `allure serve <path>`.
 
 The report includes:
 - Pass/fail/skip status with reasons
@@ -180,23 +194,24 @@ The report includes:
 ### 8.1 Per-test
 - A test passes when all of its assertions pass within the configured timeouts.
 - A test is failed if any assertion fails or any timeout fires.
-- A test is skipped if marked with `@pytest.mark.skip` and a reason; skips are not failures but require periodic review (§9).
+- A test is skipped if marked with `@pytest.mark.skip` or `@pytest.mark.skipif` and a reason. Skips are not failures but require periodic review (§9).
 
 ### 8.2 Suite health (the stability bar)
 - All non-skipped tests must pass three consecutive local runs against a stable network before the suite is considered "stable" for that build.
 - A test that fails 1 in N runs (intermittent) is treated as a defect in the test, not a real regression, and is investigated before being treated as a failure indicator.
 - Network or browser-process failures (`TargetClosedError`, transient timeouts after one bad first run) are tracked but do not invalidate the suite — see §10 risks.
 
-### 8.3 Build/release readiness (n/a here)
-This project has no release process. A real engagement would link suite health to a release gate; out of scope here.
+### 8.3 CI signal
+- A green checkmark on `main` means the headless suite passed against DJI from a US-region runner. A red X must be investigated within the same day to avoid normalizing breakage on `main`.
 
 ## 9. Known Issues and Skipped Tests
 
 | ID | Description | Status | Decision |
 |---|---|---|---|
 | KI-001 | TC-SCH-002 (no-results empty state) is skipped due to a timing race in DJI's no-results rendering. The `.no-data` block transitions through visibility states during initial render in a way that Playwright's locator visibility, raw `offsetHeight` polling, and a populated-count predicate all fail to handle reliably. | Open | Skipped with documented reason. Revisit with fresh diagnostic instrumentation in a future phase. |
+| KI-002 | TC-PDP-001 (direct product page load) is skipped in CI because DJI's geo-redirect strips `/global` from non-Israel IPs and routes `/global/<slug>` back to the regional homepage. Direct product URL navigation requires an Israel-region IP. | Open | Skipped automatically in any environment where `CI=true`. TC-PDP-002 (search → product journey) covers the same surface area in any region and passes in both local and CI. |
 
-The presence of one documented skip is acceptable. Tracking principle: **a skipped test with a written reason is preferable to a flaky test that erodes confidence in the entire suite.**
+Tracking principle: **a skipped test with a written reason is preferable to a flaky test that erodes confidence in the entire suite.**
 
 ## 10. Risks and Mitigations (Operational)
 
@@ -205,8 +220,9 @@ For strategic risks see STD §8. This section covers operational risks for runni
 | Risk | Mitigation |
 |---|---|
 | First-run browser-process flakiness on cold start (transient timeout, then cascade of `TargetClosedError`) | A single retry on cold-start failure is acceptable. CI will configure `--reruns 1` on the first attempt; locally, rerun once before treating as a real failure. |
-| Hardcoded product slug becoming invalid (Mavic 4 Pro discontinued) | Test fails loudly with URL/title mismatch. Maintenance: update `_TEST_PRODUCT_SLUG` in `tests/product/test_product_page.py`. |
+| Hardcoded product slug becoming invalid (Mavic 4 Pro discontinued) | TC-PDP-001 fails loudly with URL/title mismatch. Maintenance: update `_TEST_PRODUCT_SLUG` in `tests/product/test_product_page.py`. |
 | DJI marketing redesign changing locators | Locator strategy prioritizes role/text/data-attributes over CSS classes. When breakage occurs, fix in the page object only — tests do not reference selectors directly. |
+| Geo-redirect serves different URLs by region | URL assertions are region-tolerant where possible; tests that genuinely require a specific region are skipped in CI with a documented reason (see KI-002). |
 | Anti-bot detection blocking Playwright | Has not occurred to date. Mitigation: keep parallelism low, no aggressive retry, no scraping patterns. |
 | Loss of network mid-run | Tests fail; rerun on stable network. The framework does not retry at the test level (deliberate — see STD §8). |
 
@@ -214,10 +230,10 @@ For strategic risks see STD §8. This section covers operational risks for runni
 
 | Role | Owner | Responsibilities |
 |---|---|---|
-| Test author | Solo author | All test design, implementation, review, maintenance. |
-| Test reviewer | Solo author + AI mentor | Self-review enforced by pre-commit hooks (ruff, black) and STD/STP discipline. No human peer review. |
-| Test executor | Solo author | Runs locally; future CI is Phase 5. |
-| Defect triage | Solo author | Failures investigated by reading failure logs, Playwright traces, and Allure reports. |
+| Test author | Max Rybkin | All test design, implementation, review, maintenance. |
+| Test reviewer | Max Rybkin + AI mentor | Self-review enforced by pre-commit hooks (ruff, black) and STD/STP discipline. No human peer review. |
+| Test executor | Max Rybkin (local) + GitHub Actions (CI) | Local headed, CI headless. |
+| Defect triage | Max Rybkin | Failures investigated by reading failure logs, Playwright traces, and Allure reports. |
 
 ## 12. Schedule and Status
 
@@ -226,8 +242,8 @@ Per the STD's [Greenfield rollout plan](STD.md#10-deliverables):
 | Phase | Deliverable | Status |
 |---|---|---|
 | 1 | Repo scaffold + first smoke test | Done |
-| 2 | Page objects + core flow tests | **In progress** — search and product flows shipped (this commit). Cart-as-guest pending. |
-| 3 | Fixtures, config, logging, CI stub | Partial — fixtures, config, logging done. CI stub pending. |
+| 2 | Page objects + core flow tests | In progress — search and product flows shipped. Cart-as-guest pending. |
+| 3 | Fixtures, config, logging, CI stub | **Mostly done** — fixtures, config, logging done. GitHub Actions CI online. Jenkinsfile pending. |
 | 4 | Expanded coverage | Pending |
 | 5 | Parallelization, full Jenkins pipeline | Pending |
 
@@ -240,6 +256,7 @@ Per the STD's [Greenfield rollout plan](STD.md#10-deliverables):
 - **Allure:** A reporting tool that aggregates pytest results into a navigable HTML report with attachments.
 - **Smoke test:** A fast, minimal test that verifies the system is reachable and basic wiring works.
 - **Regression test:** A test that verifies a specific feature continues to work as expected.
+- **CI (Continuous Integration):** A system that automatically runs the test suite on every code push, providing fast feedback on whether changes broke anything.
 
 ---
 
@@ -248,3 +265,4 @@ Per the STD's [Greenfield rollout plan](STD.md#10-deliverables):
 | Version | Date | Change |
 |---|---|---|
 | 0.1 | 2026-05-05 | Initial draft. Reflects state at commit `03ed042` (5 passing, 1 skipped). |
+| 0.2 | 2026-05-11 | Added CI execution section. Added KI-002 (geo-redirect skip for TC-PDP-001). Updated TC-SMK-001 description to reflect region-tolerant assertions. |
