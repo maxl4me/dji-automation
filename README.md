@@ -1,5 +1,7 @@
 # DJI Automation
 
+[![tests](https://github.com/maxl4me/dji-automation/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/maxl4me/dji-automation/actions/workflows/tests.yml)
+
 UI automation framework for the DJI Global storefront (`https://www.dji.com/global`).
 
 Learning and portfolio project. See [`docs/STD.md`](docs/STD.md) for scope, strategy,
