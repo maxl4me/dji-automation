@@ -85,42 +85,45 @@ def clean_cart(page):
 
 
 @pytest.mark.regression
-@allure.title("Add a product to the cart and remove it (guest)")
-@allure.description(
-    "Full guest cart contract on the US store: open store -> assert US "
-    "region (fail-loud guard) -> open product -> add to cart -> verify "
-    "confirmation modal -> open cart -> verify product present by name "
-    "-> remove -> verify cart empty. Stops before payment."
-)
-@allure.severity(allure.severity_level.CRITICAL)
-def test_add_and_remove_from_cart(page, clean_cart) -> None:
-    store = StoreHomePage(page)
-    store.open()
-    store.assert_us_region()  # fail-loud region guard
+class TestCart:
+    """Guest cart flows against store.dji.com."""
 
-    product = StoreProductPage(page)
-    product.goto(_PRODUCT_SLUG)
-    product_name = product.title()
-    assert product_name, "Product page rendered no title — check the trace."
-
-    product.add_to_cart()
-    assert product.add_confirmation_is_visible(), (
-        "Add-to-cart confirmation modal did not appear. The add may have "
-        "failed, or the modal markup changed. Check the Allure trace."
+    @allure.title("Add a product to the cart and remove it (guest)")
+    @allure.description(
+        "Full guest cart contract on the US store: open store -> assert US "
+        "region (fail-loud guard) -> open product -> add to cart -> verify "
+        "confirmation modal -> open cart -> verify product present by name "
+        "-> remove -> verify cart empty. Stops before payment."
     )
+    @allure.severity(allure.severity_level.CRITICAL)
+    def test_add_and_remove_from_cart(self, page, clean_cart) -> None:
+        store = StoreHomePage(page)
+        store.open()
+        store.assert_us_region()  # fail-loud region guard
 
-    product.go_to_cart_via_modal()
+        product = StoreProductPage(page)
+        product.goto(_PRODUCT_SLUG)
+        product_name = product.title()
+        assert product_name, "Product page rendered no title — check the trace."
 
-    cart = clean_cart  # same CartPage instance used for teardown
-    cart.wait_for_item_count(1)
-    assert cart.contains_product(product_name), (
-        f"Cart does not contain {product_name!r} after adding it. "
-        f"Cart URL: {cart.current_url()!r}. Check the trace."
-    )
+        product.add_to_cart()
+        assert product.add_confirmation_is_visible(), (
+            "Add-to-cart confirmation modal did not appear. The add may have "
+            "failed, or the modal markup changed. Check the Allure trace."
+        )
 
-    cart.remove_first_item()
-    cart.wait_for_item_count(0)
-    assert cart.is_empty(), (
-        "Cart is not empty after removing the only item. Remove may have "
-        "failed or the empty-state detection is wrong. Check the trace."
-    )
+        product.go_to_cart_via_modal()
+
+        cart = clean_cart  # same CartPage instance used for teardown
+        cart.wait_for_item_count(1)
+        assert cart.contains_product(product_name), (
+            f"Cart does not contain {product_name!r} after adding it. "
+            f"Cart URL: {cart.current_url()!r}. Check the trace."
+        )
+
+        cart.remove_first_item()
+        cart.wait_for_item_count(0)
+        assert cart.is_empty(), (
+            "Cart is not empty after removing the only item. Remove may have "
+            "failed or the empty-state detection is wrong. Check the trace."
+        )

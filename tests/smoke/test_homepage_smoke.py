@@ -28,32 +28,35 @@ from framework.pages.home_page import HomePage
 
 
 @pytest.mark.smoke
-@allure.title("DJI homepage loads and renders the main navigation")
-@allure.description(
-    "Navigates to the configured base URL, verifies we land on a DJI domain "
-    "(any region), and confirms the main navigation is visible. Region-tolerant."
-)
-@allure.severity(allure.severity_level.BLOCKER)
-def test_homepage_loads(page) -> None:
-    home = HomePage(page)
+class TestHomepageSmoke:
+    """Smoke tests for the DJI Global homepage."""
 
-    home.open()
-
-    # Region-tolerant URL check: we just want to confirm we ended up on
-    # a DJI domain. The exact path (/global vs /) varies by request IP.
-    assert "dji.com" in home.current_url(), (
-        f"Expected URL to contain 'dji.com', got {home.current_url()!r}. "
-        "Page may have failed to load or been hijacked."
+    @allure.title("DJI homepage loads and renders the main navigation")
+    @allure.description(
+        "Navigates to the configured base URL, verifies we land on a DJI domain "
+        "(any region), and confirms the main navigation is visible. Region-tolerant."
     )
+    @allure.severity(allure.severity_level.BLOCKER)
+    def test_homepage_loads(self, page) -> None:
+        home = HomePage(page)
 
-    assert "DJI" in home.page_title(), (
-        f"Page title does not contain 'DJI': got {home.page_title()!r}. "
-        "Page may have rendered an error or anti-bot challenge instead. Check the trace."
-    )
+        home.open()
 
-    # Strongest signal: the main product navigation rendered.
-    # If this is visible, we're on a real DJI page regardless of URL.
-    assert home.main_nav_is_visible(), (
-        "Main navigation (Camera Drones link) not visible within timeout. "
-        "Check the Allure trace for the actual page state."
-    )
+        # Region-tolerant URL check: we just want to confirm we ended up on
+        # a DJI domain. The exact path (/global vs /) varies by request IP.
+        assert "dji.com" in home.current_url(), (
+            f"Expected URL to contain 'dji.com', got {home.current_url()!r}. "
+            "Page may have failed to load or been hijacked."
+        )
+
+        assert "DJI" in home.page_title(), (
+            f"Page title does not contain 'DJI': got {home.page_title()!r}. "
+            "Page may have rendered an error or anti-bot challenge instead. Check the trace."
+        )
+
+        # Strongest signal: the main product navigation rendered.
+        # If this is visible, we're on a real DJI page regardless of URL.
+        assert home.main_nav_is_visible(), (
+            "Main navigation (Camera Drones link) not visible within timeout. "
+            "Check the Allure trace for the actual page state."
+        )
