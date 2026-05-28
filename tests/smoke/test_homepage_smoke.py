@@ -1,22 +1,18 @@
-"""Phase 1 smoke test — proves the framework is wired up end-to-end.
+"""Phase 1 smoke tests — prove the framework is wired up end-to-end and
+the homepage's key landmarks render.
 
-What this test covers:
-  * Browser launches, context opens, page navigates.
-  * Playwright tracing is running.
-  * Role-based locators resolve against the live DJI site.
-  * Allure reporting attaches environment + (on failure) trace + screenshot.
-
-What this test does NOT cover:
-  * Any specific business flow. That starts in Phase 2.
+What these tests cover:
+  * TC-SMK-001 — browser/context/page wiring, main nav renders.
+  * TC-SMK-002 — region indicator ("Other Regions") renders.
+  * TC-SMK-003 — footer key column headings render.
 
 A note on region:
   DJI geo-redirects based on the request's IP. From Israel, /global stays
   as /global. From the US (e.g., GitHub Actions runners in Azure West US),
   DJI strips /global and serves the regional landing page from /. Both pages
-  are valid DJI pages with the same nav and content — only the URL differs.
-
-  We assert the *contract*, not the URL: "we're on a DJI page with the main
-  navigation visible." This passes in any region.
+  are valid DJI pages with the same nav, region switcher, and footer — only
+  the URL differs. We assert the *contract*, not the URL. These pass in any
+  region.
 """
 
 from __future__ import annotations
@@ -24,6 +20,7 @@ from __future__ import annotations
 import allure
 import pytest
 
+from framework.components.footer import Footer
 from framework.pages.home_page import HomePage
 
 
@@ -60,3 +57,42 @@ class TestHomepageSmoke:
             "Main navigation (Camera Drones link) not visible within timeout. "
             "Check the Allure trace for the actual page state."
         )
+
+    @allure.title("Homepage shows the region indicator")
+    @allure.description(
+        "Verifies the 'Other Regions' region/country switcher is visible on the "
+        "homepage. A present region indicator is a signal the global chrome "
+        "rendered correctly. Region-tolerant."
+    )
+    @allure.severity(allure.severity_level.NORMAL)
+    def test_region_indicator_present(self, page) -> None:
+        home = HomePage(page)
+        home.open()
+
+        assert home.region_indicator_is_visible(), (
+            "Region indicator ('Other Regions') not visible on the homepage. "
+            "DJI may have changed the region-switcher markup — check the trace."
+        )
+
+    @allure.title("Homepage footer renders key column sections")
+    @allure.description(
+        "Verifies a representative set of footer column headings render: "
+        "'Product Categories', 'Support', and 'Explore'. Confirms the footer "
+        "structure is present without asserting on volatile link sets. "
+        "Region-tolerant."
+    )
+    @allure.severity(allure.severity_level.NORMAL)
+    def test_footer_key_sections_present(self, page) -> None:
+        home = HomePage(page)
+        home.open()
+
+        footer = Footer(page)
+
+        # A representative subset, not all nine — these three span the
+        # product, support, and content areas of the footer. Asserting a
+        # subset keeps the test robust if DJI reorganizes minor columns.
+        for section in ("Product Categories", "Support", "Explore"):
+            assert footer.section_is_visible(section), (
+                f"Footer section heading {section!r} not visible. DJI may have "
+                "restructured the footer — check the trace."
+            )

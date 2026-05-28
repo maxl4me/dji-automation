@@ -1,16 +1,17 @@
 """Search functionality tests.
 
-Three tests, three distinct concerns:
-
+Tests:
   1. test_search_returns_matching_products — full UI flow through the
-     overlay. Proves the user-facing journey works end to end.
+     overlay for 'mavic'. Proves the user-facing journey works end to end.
+  2. test_search_with_no_results_shows_empty_state — SKIPPED (KI-001).
+  3. test_search_query_persists_in_input — direct URL navigation, input
+     reflects the URL's q= parameter.
+  4. test_search_returns_products_for_queries — DDT across several product
+     families (mavic/mini/osmo/ronin), each expected to return results.
 
-  2. test_search_with_no_results_shows_empty_state — direct URL navigation
-     for a query guaranteed to have no matches. Isolates the empty-state UI.
-
-  3. test_search_query_persists_in_input — direct URL navigation, asserts
-     the results-page input reflects the URL's q= parameter. Catches
-     regressions where the URL works but the UI doesn't sync.
+(TC-SCH-005 empty-search negative test deferred: the blank-query page
+behavior is unreconned and risks the same settle-timeout as KI-001.
+Recon the empty-query state before adding it.)
 
 Why mix UI flow and direct URL? UI flow is brittle and slow but proves
 the journey. Direct URL is fast and stable but skips a real path. We
@@ -105,3 +106,29 @@ class TestSearch:
         assert (
             query.lower() in actual_value.lower()
         ), f"Expected results-page search input to contain {query!r}, got {actual_value!r}."
+
+    @pytest.mark.parametrize(
+        "query",
+        ["mavic", "mini", "osmo", "ronin"],
+        ids=["mavic", "mini", "osmo", "ronin"],
+    )
+    @allure.title("Search for '{query}' returns at least one product")
+    @allure.description(
+        "DDT across several DJI product families. Direct navigation to "
+        "/search?q=<query>; verify the URL reflects the query and the product "
+        "count is greater than zero. Uses direct URL (fast, stable) rather than "
+        "the overlay; the overlay path is covered once by "
+        "test_search_returns_matching_products."
+    )
+    @allure.severity(allure.severity_level.NORMAL)
+    def test_search_returns_products_for_queries(self, page, query: str) -> None:
+        results = SearchResultsPage(page)
+
+        results.goto(query)
+
+        assert (
+            query in results.current_url()
+        ), f"Expected results URL to contain {query!r}, got {results.current_url()!r}."
+
+        count = results.product_count()
+        assert count > 0, f"Expected at least one product result for {query!r}, got count={count}."

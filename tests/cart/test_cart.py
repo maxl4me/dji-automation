@@ -1,11 +1,11 @@
-"""Cart-as-guest tests (store.dji.com).
+"""Store (store.dji.com) tests: guest cart flow and product-page checks.
 
-One test for this Phase 2 deliverable: the full add -> verify ->
-remove -> verify-empty contract against the US store, as a guest.
+Two classes, both against the US store as a guest:
 
-All selectors used by the page objects below were verified against the
-LIVE US-store DOM during recon (2026-05-19). See the individual page
-objects' module docstrings for the confirmed DOM evidence.
+  * TestCart — the full add -> verify -> remove -> verify-empty cart
+    contract (TC-CART-001).
+  * TestStoreProductPage — store product-page checks that aren't cart
+    actions. Currently the price-renders check (TC-PDP-003).
 
 Design decisions baked in (all evidence-backed):
 
@@ -13,33 +13,26 @@ Design decisions baked in (all evidence-backed):
     the store is not IP-redirected: it defaults every visitor to the US
     store and records the real IP-region in a separate, unacted-upon
     cookie (region=US vs ip_region=IL, verified). US is therefore the
-    deterministic default locally and in CI. assert_us_region() is a
-    FAIL-LOUD guard, not a tolerant skip.
+    deterministic default locally and in CI.
 
   * Cart isolation is provided by the existing per-test context fixture.
     The cart is keyed to a cart_uuid cookie; a fresh context has none,
     so the server issues a new one and the cart starts empty. The
-    clean_cart fixture teardown is belt-and-braces (fires even on test
-    failure), not load-bearing isolation.
-
-  * Assert by product NAME, not slug or position. The name is captured
-    from the product page <h1> and matched in the cart row's text
-    (verified the name is present in row innerText).
+    clean_cart fixture teardown is belt-and-braces, not load-bearing.
 
   * Stop before payment (STD hard rule). Adds, verifies, removes.
     Never touches checkout, never enters payment data.
 
-  * Known non-issue: the cart page logs a PayPal SDK console error
-    ("zoid destroyed all components") from third-party-cookie/ad-block
-    interference with PayPal's iframe. Unrelated to cart add/remove;
-    the framework does not assert on console errors so it does not
-    affect this test. Documented so a future console-error gate would
-    not false-fail here.
+  * Price is asserted by TEXT pattern ("USD $<digits>"), not by the
+    build-hashed price classes, and not by slug/position. Verified by
+    in-Playwright recon (2026-05-28): the pinned product renders
+    "USD $199".
 
-Maintenance risk (tracked in STP): the pinned store product can go out
-of stock. Symptom is product.goto() timing out on the Add to Cart wait
-(the store renders "Notify Me" instead). That is NOT a cart regression
-— update _PRODUCT_SLUG to a current in-stock item.
+Maintenance risk (tracked in STP, KI-003): the pinned store product can
+go out of stock. Symptom is goto() timing out on the Add to Cart wait
+(the store renders "Notify Me" instead). That is NOT a regression —
+update _PRODUCT_SLUG to a current in-stock item. Both classes share this
+dependency because both load the same pinned product page.
 """
 
 from __future__ import annotations
@@ -53,11 +46,10 @@ from framework.pages.cart_page import CartPage
 from framework.pages.store_home_page import StoreHomePage
 from framework.pages.store_product_page import StoreProductPage
 
-# Pinned product. Chosen for: in stock at recon, an active product line
-# (more evergreen than an accessory for an older device), plain
-# "Add to Cart" with no forced variant/quantity picker. If discontinued
-# or out of stock, the test fails loudly at product-page load — update
-# this slug (see module docstring + STP risk row).
+# Pinned product. Chosen for: in stock at recon, an active product line,
+# plain "Add to Cart" with no forced variant/quantity picker. If
+# discontinued or out of stock, tests fail loudly at product-page load —
+# update this slug (see module docstring + STP KI-003).
 _PRODUCT_SLUG = "dji-fpv-remote-controller-3"
 
 
@@ -69,11 +61,8 @@ def clean_cart(page):
     an empty cart via a new cart_uuid cookie) but yields a CartPage for
     the test to reuse and for teardown.
 
-    Teardown empties the cart regardless of test outcome. pytest runs
-    fixture teardown after the yield even when the test fails, so an
-    item added by a crashed test cannot survive into a rerun within the
-    same context. Mirrors the conftest pattern of outcome-aware
-    teardown. Teardown never raises — it must not mask the real failure.
+    Teardown empties the cart regardless of test outcome. Teardown never
+    raises — it must not mask the real failure.
     """
     cart = CartPage(page)
     yield cart
@@ -126,4 +115,31 @@ class TestCart:
         assert cart.is_empty(), (
             "Cart is not empty after removing the only item. Remove may have "
             "failed or the empty-state detection is wrong. Check the trace."
+        )
+
+
+@pytest.mark.regression
+class TestStoreProductPage:
+    """Store product-page checks that are not cart actions."""
+
+    @allure.title("Store product page renders a price")
+    @allure.description(
+        "Open the pinned US-store product page and verify a 'USD $<amount>' "
+        "price renders. The marketing product page shows no price (Buy buttons "
+        "only); pricing lives on store.dji.com, so this check belongs here. "
+        "Price is matched by text pattern, not by build-hashed CSS classes."
+    )
+    @allure.severity(allure.severity_level.NORMAL)
+    def test_store_product_price_renders(self, page) -> None:
+        store = StoreHomePage(page)
+        store.open()
+        store.assert_us_region()  # fail-loud region guard
+
+        product = StoreProductPage(page)
+        product.goto(_PRODUCT_SLUG)
+
+        assert product.price_is_visible(), (
+            "No 'USD $<amount>' price visible on the store product page. "
+            "Either the product is out of stock (see KI-003), or DJI changed "
+            "the price markup. Check the trace."
         )

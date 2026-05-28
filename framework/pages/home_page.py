@@ -1,8 +1,9 @@
 """DJI Global homepage.
 
-Owns the homepage's own elements (main nav, hero) and provides an entry
-point to the header search overlay. The overlay itself is a Component
-(framework/components/search_overlay.py) because it appears across pages.
+Owns the homepage's own elements (main nav, hero, region indicator) and
+provides an entry point to the header search overlay. The overlay itself
+is a Component (framework/components/search_overlay.py) because it appears
+across pages.
 """
 
 from __future__ import annotations
@@ -32,19 +33,27 @@ class HomePage(BasePage):
         # "Camera Drones" is a primary product line — stable across
         # marketing redesigns far more than CSS class names would be.
         #
-        # NOTE: we locate page-wide, NOT scoped to <header>. DJI ships more
-        # than one <header> element (a visible nav plus at least one
-        # hidden/duplicate header). A page.locator("header") descendant
-        # lookup can resolve against a <header> that does not contain the
-        # visible nav, so the link is never found. The aria-label is unique
-        # page-wide, which is all the disambiguation we need. (Verified by
-        # recon 2026-05-28.)
+        # NOTE: we locate page-wide, NOT scoped to <header>. Recon showed
+        # there is effectively no usable single <header> element wrapping
+        # the visible nav (document.querySelector("header") returned null
+        # in the test environment). The aria-label is unique page-wide,
+        # which is all the disambiguation we need.
         self._main_nav_link = page.get_by_role("link", name="Camera Drones", exact=True).first
 
         # Header search trigger. The <a> tag has aria-label="Search" — the
         # most stable hook because aria-label is an accessibility commitment
         # that doesn't change with visual redesigns.
         self._search_trigger = page.get_by_role("link", name="Search", exact=True)
+
+        # Region indicator — the "Other Regions" control. Anchor on the
+        # visible container div.language-box. Recon's DOM dump also showed a
+        # bare <span> with exact text "Other Regions", but an in-Playwright
+        # probe proved that span is_visible=False — it lives in the hidden
+        # language flyout. div.language-box is the visible chrome the user
+        # actually sees (probe: count=1, is_visible=True). The class is
+        # semantic ('language-box'), not a build hash, so it's a legitimate
+        # CSS anchor here. Verified in the test environment (2026-05-28).
+        self._region_indicator = page.locator("div.language-box").first
 
     @allure.step("Open DJI Global homepage")
     def open(self) -> None:
@@ -58,6 +67,11 @@ class HomePage(BasePage):
     @allure.step("Verify homepage main navigation is visible")
     def main_nav_is_visible(self) -> bool:
         return self.is_visible(self._main_nav_link)
+
+    @allure.step("Verify region indicator is visible")
+    def region_indicator_is_visible(self) -> bool:
+        """True if the 'Other Regions' switcher is visible on the homepage."""
+        return self.is_visible(self._region_indicator)
 
     @allure.step("Open header search overlay")
     def open_search_overlay(self) -> SearchOverlay:
@@ -73,30 +87,25 @@ class HomePage(BasePage):
     def click_nav_link(self, name: str, href_contains: str | None = None) -> None:
         """Click a top-level nav link by accessible name.
 
-        Located page-wide by accessible name, NOT scoped to <header>:
-        DJI ships multiple <header> elements and a <header>-scoped lookup
-        resolves against the wrong one (verified by recon). The aria-label
-        is unique page-wide for most nav links.
+        Located page-wide by accessible name (not <header>-scoped; there is
+        no usable single <header> wrapping the nav — verified by recon).
+        The aria-label is unique page-wide for most nav links.
 
         Some nav names appear on more than one link (e.g. "Support" exists
-        as both a header nav link with `from=nav` and a hero/body link with
+        as both a header nav link with `from=nav` and a body link with
         `from=homepage`). For those, pass href_contains to pin the exact
-        link we mean. Navigation is same-tab for all current nav targets.
+        link. Navigation is same-tab for all current nav targets.
 
         Args:
             name: Exact accessible name of the link (e.g. "Camera Drones",
                   "Where to Buy", "Support").
             href_contains: Optional substring of the target href, used to
                   disambiguate when more than one link shares the same
-                  accessible name. Recommended for any name that recon
-                  shows is non-unique.
+                  accessible name.
         """
         if href_contains is not None:
-            # Disambiguate by the link's own href attribute. We can't use
-            # get_by_role(...).filter(has=...) here because href is an
-            # attribute ON the <a>, not on a descendant. Recon shows the
-            # href fragment (e.g. "from=nav") is the unique disambiguator,
-            # so we match the anchor by href alone.
+            # Disambiguate by the link's own href. Recon shows the href
+            # fragment (e.g. "from=nav") is the unique disambiguator.
             link = self.page.locator(f'a[href*="{href_contains}"]').first
         else:
             link = self.page.get_by_role("link", name=name, exact=True).first

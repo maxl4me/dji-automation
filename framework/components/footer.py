@@ -9,21 +9,17 @@ Recon notes (2026-05-28):
   * Footer is present in the initial DOM at first paint — no lazy load.
     51 visible links exist below the fold from the moment the page is
     parsed. We do not need to scroll to materialize them.
+  * Footer COLUMN HEADINGS are <p class="title"> elements (Product
+    Categories, Service Plans, Where to Buy, Cooperation, Fly Safe,
+    Support, Explore, Community, Subscribe). All ~24px tall and visible
+    to Playwright. Used by TC-SMK-003.
   * All current TC-NAV-004 DDT targets navigate same-tab (target='_self')
     and are unique by accessible name within <footer>.
   * The lower footer rows ("Who We Are", "Terms of Use") are plain inline
-    <a> links (display:inline, ~16px tall). An explicit
-    scroll_into_view_if_needed() on these proved flaky: while DJI's late
-    analytics scripts (GTM, sentry, etc.) keep reflowing the page, the
-    element's box never settles within the timeout and the standalone
-    scroll call fails — even though the link is fully visible and unique.
-    Playwright's click() does its own auto-scroll + stability wait and is
-    more tolerant of this reflow churn, so we let click() own the scroll
-    rather than calling scroll_into_view_if_needed() first. (This is why
-    the higher footer links passed and the lower ones failed before.)
-  * If a future target needs to open a new tab, swap expect_navigation
-    for context.expect_page in a dedicated method — don't overload this
-    one.
+    <a> links that Playwright treats as not-visible (clipped container);
+    DDT targets avoid them. Click targets come from the upper column block.
+  * click() does its own auto-scroll + stability wait; we do NOT call
+    scroll_into_view_if_needed() (it was flaky during page reflow).
 """
 
 from __future__ import annotations
@@ -57,17 +53,15 @@ class Footer(BasePage):
         We do NOT call scroll_into_view_if_needed() here. click() already
         auto-scrolls and waits for the element to be stable; the explicit
         scroll call was flaky on the lower inline footer links while the
-        page was still reflowing (see module docstring). wait_for_visible
-        stays so that a genuinely missing link fails with a clean
-        "not visible" message rather than an opaque click timeout.
+        page was still reflowing. wait_for_visible stays so that a
+        genuinely missing link fails with a clean "not visible" message
+        rather than an opaque click timeout.
 
         Same-tab navigation expected for all current DDT targets. If you
         add a target that opens a new tab, write a separate method.
 
         Args:
-            name: Exact accessible name of the link, e.g. "Download Center",
-                  "Terms of Use". Footer links take their name from visible
-                  text (no aria-label), so what you see is what you pass.
+            name: Exact accessible name of the link, e.g. "Download Center".
         """
         link = self._footer.get_by_role("link", name=name, exact=True).first
         self.wait_for_visible(link)
@@ -77,3 +71,20 @@ class Footer(BasePage):
             timeout=self._navigation_timeout,
         ):
             self.click(link)
+
+    @allure.step("Verify footer section heading is visible: {name}")
+    def section_is_visible(self, name: str) -> bool:
+        """True if a footer column heading with this exact text is visible.
+
+        Footer column headings are <p class="title"> elements. We anchor
+        on the text via get_by_text(exact=True) scoped to <footer>, so we
+        don't match the build-hashed class and don't collide with links of
+        a similar name elsewhere. Verified headings (recon 2026-05-28):
+        Product Categories, Service Plans, Where to Buy, Cooperation,
+        Fly Safe, Support, Explore, Community, Subscribe.
+
+        Args:
+            name: Exact heading text, e.g. "Product Categories".
+        """
+        heading = self._footer.get_by_text(name, exact=True).first
+        return self.is_visible(heading)

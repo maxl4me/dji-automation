@@ -25,6 +25,16 @@ All selectors below were verified against the LIVE US-store DOM
     Classes are build-hashed (volatile). Title is the page's primary
     <h1>; we anchor on the first h1. Rendered text == product name.
 
+  * Price (added 2026-05-28, in-Playwright recon):
+      <span class="style__price___D132C ...">USD $199</span>
+    Several price elements exist (block price, normal price, etc.), all
+    build-hashed classes (e.g. style__price___D132C) which are unusable
+    as anchors. The STABLE signal is the TEXT pattern: the store always
+    renders the price as "USD $<digits>". We anchor on a regex over that
+    text via get_by_text, consistent with this class's documented stance
+    that the hashed classes are not to be used. No data-test-locator is
+    present on the price (verified), so text is the best available hook.
+
   * Confirmation modal (post-add):
       <main><h3>1 item(s) added to Cart</h3>
         <button>Continue Shopping</button>
@@ -41,6 +51,8 @@ single-use modal would be premature abstraction.
 
 from __future__ import annotations
 
+import re
+
 import allure
 from playwright.sync_api import Page
 
@@ -50,6 +62,11 @@ from framework.logger import get_logger
 from framework.pages.base_page import BasePage
 
 log = get_logger(__name__)
+
+# DJI store price text shape: "USD $199", "USD $1,299", etc. We match the
+# currency-code + symbol + digits pattern rather than any build-hashed
+# class. Case-insensitive on the currency code for safety.
+_PRICE_TEXT_PATTERN = re.compile(r"USD\s*\$\s*\d", re.IGNORECASE)
 
 
 class StoreProductPage(BasePage):
@@ -69,6 +86,10 @@ class StoreProductPage(BasePage):
         # Add to Cart — role+name primary. id="gtm_AddtoCart" is the
         # documented fallback if the accessible name ever changes.
         self._add_to_cart_button = page.get_by_role("button", name="Add to Cart").first
+
+        # Price — text-pattern anchor (build-hashed classes are unusable;
+        # no data-test-locator present). Matches "USD $<digits>".
+        self._price = page.get_by_text(_PRICE_TEXT_PATTERN).first
 
         # Post-add modal: text is an <h3> "1 item(s) added to Cart".
         self._confirm_modal_text = page.get_by_text("added to Cart", exact=False)
@@ -123,6 +144,22 @@ class StoreProductPage(BasePage):
             timeout=self._navigation_timeout,
         ):
             self.click(self._view_cart_button)
+
+    @allure.step("Verify product price is visible")
+    def price_is_visible(self) -> bool:
+        """True if a 'USD $<digits>' price renders on the page.
+
+        Anchored on the price TEXT pattern, not the build-hashed price
+        classes. goto() already waited for Add to Cart (in-stock signal),
+        so by the time this is called the priced state has rendered.
+        """
+        return self.is_visible(self._price)
+
+    @allure.step("Read product price text")
+    def price_text(self) -> str:
+        """Return the price string, e.g. 'USD $199'. Raises if not present."""
+        self.wait_for_visible(self._price)
+        return self.inner_text(self._price).strip()
 
     def current_url(self) -> str:
         return self.page.url
