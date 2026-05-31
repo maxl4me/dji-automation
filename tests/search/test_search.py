@@ -8,10 +8,9 @@ Tests:
      reflects the URL's q= parameter.
   4. test_search_returns_products_for_queries — DDT across several product
      families (mavic/mini/osmo/ronin), each expected to return results.
-
-(TC-SCH-005 empty-search negative test deferred: the blank-query page
-behavior is unreconned and risks the same settle-timeout as KI-001.
-Recon the empty-query state before adding it.)
+  5. test_empty_search_returns_no_products — negative path. /search?q=
+     renders the no-data block with zero products; we assert the contract
+     ("no products for empty query") which holds regardless of UI changes.
 
 Why mix UI flow and direct URL? UI flow is brittle and slow but proves
 the journey. Direct URL is fast and stable but skips a real path. We
@@ -132,3 +131,34 @@ class TestSearch:
 
         count = results.product_count()
         assert count > 0, f"Expected at least one product result for {query!r}, got count={count}."
+
+    @allure.title("Empty search query returns no product results")
+    @allure.description(
+        "Negative path. Direct navigation to /search?q= (empty query). DJI's "
+        "empty-query path renders a stable 'no-data' empty state (verified by "
+        "in-Playwright recon 2026-05-31: no_data_offsetHeight=108, no product "
+        "tab, no product items). The test asserts the contract — zero product "
+        "results — which holds regardless of how DJI styles the empty UI. "
+        "Note: the related KI-001 skipped test (random nonsense query) has a "
+        "timing race; the empty-query path does NOT share that race because "
+        "DJI short-circuits empty queries to a stable server-rendered state."
+    )
+    @allure.severity(allure.severity_level.NORMAL)
+    def test_empty_search_returns_no_products(self, page) -> None:
+        results = SearchResultsPage(page)
+
+        # SearchResultsPage.goto("") URL-encodes and calls
+        # wait_for_results_settled, which resolves on the visible .no-data
+        # block (verified). product_count()'s early-out branch returns 0 when
+        # .no-data is present, so we don't need to handle a missing count span.
+        results.goto("")
+
+        count = results.product_count()
+        assert count == 0, (
+            f"Expected no product results for an empty query, got count={count}. "
+            "DJI may have changed how empty queries are handled — check the trace."
+        )
+        assert results.is_no_results_shown(), (
+            "Expected the empty-state ('no-data') block to be visible on an "
+            "empty-query results page. DJI may have changed the empty-state DOM."
+        )
