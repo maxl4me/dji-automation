@@ -3,8 +3,8 @@
 **Project:** DJI Global Storefront — UI Automation Framework
 **Target Application:** https://www.dji.com/global and https://store.dji.com
 **Author:** Max Rybkin
-**Date:** 2026-05-31
-**Version:** 0.4 (Draft)
+**Date:** 2026-06-01
+**Version:** 0.5 (Draft)
 **Status:** Block A complete (suite at 6 classes / 22 collected), CI green on main
 **Companion documents:** [STD.md](STD.md) · [STD_Test_Scenarios.xlsx](STD_Test_Scenarios.xlsx) · [CI.md](CI.md)
 
@@ -34,7 +34,7 @@ In one sentence: the suite covers public, unauthenticated UI flows on `dji.com/g
 
 The two-site split matters and is reflected throughout this Plan:
 - **Marketing site** (`dji.com/global`) is **IP-geo-redirected**; tests assert the *contract*, not the URL (region-tolerant).
-- **Store** (`store.dji.com`) is **not** IP-redirected; it defaults every visitor to the US store. Store tests **pin** the US store as a deterministic default and assert it as a fail-loud guard.
+- **Store** (`store.dji.com`) **also geo-routes by IP** (confirmed 2026-06-01 — see KI-005). From our local Israel IP it serves the US store, so store tests **pin** the US store as a deterministic fail-loud guard and run locally. CI runners get a different regional store, so the store tests are **skipped in CI** (twin of KI-002).
 
 ## 3. Test Levels and Types
 
@@ -53,14 +53,14 @@ The two-site split matters and is reflected throughout this Plan:
 | Item | Value |
 |---|---|
 | Marketing URL | `https://www.dji.com/global` (Israel) / `https://www.dji.com/` (US, geo-redirected) |
-| Store URL | `https://store.dji.com` (US default in every region; not IP-redirected) |
+| Store URL | `https://store.dji.com` (US store from our Israel IP; geo-routes by IP — see KI-005) |
 | Application environment | Production (no staging available; see STD §7) |
 | Browser | Chromium (Playwright bundled) |
 | OS for local execution | Ubuntu 24.04 LTS (developer machine) |
 | OS for CI execution | Ubuntu 24.04 LTS (GitHub Actions, Azure West US runner) |
 | Python | 3.11+ (3.12.3 local / 3.12 in CI) |
 | Headless mode | Off locally (`headless = false`). Forced on in CI via `DJI_BROWSER__HEADLESS=true`. |
-| Region | English routes only. DJI's geo-redirect means CI sees the US-regional marketing homepage; local runs from Israel see `/global`. The store is US-default everywhere. |
+| Region | English routes only. DJI's geo-redirect means CI sees the US-regional marketing homepage; local runs from Israel see `/global`. The store also geo-routes by IP: US from our Israel IP, a different regional store on CI runners (KI-005). |
 
 ## 5. Test Data Strategy
 
@@ -77,7 +77,7 @@ The two-site split matters and is reflected throughout this Plan:
 
 Each test below includes a stable test ID for cross-referencing, matching the IDs in [STD_Test_Scenarios.xlsx](STD_Test_Scenarios.xlsx). IDs are an STP-level convention, not enforced by code. Test files and the live Allure report are the canonical source.
 
-Current totals: **6 test classes**, **16 scenario IDs**, **22 tests collected** (DDT cases expand to multiple runs). Local: 21 passed + 1 skipped. CI: 20 passed + 2 skipped (TC-PDP-001 additionally skips in CI per KI-002).
+Current totals: **6 test classes**, **16 scenario IDs**, **22 tests collected** (DDT cases expand to multiple runs). Local: 21 passed + 1 skipped. CI: 18 passed + 4 skipped (TC-PDP-001 skips per KI-002; TC-CART-001 and TC-PDP-003 skip per KI-005 — store geo-routes by IP).
 
 ### 6.1 Smoke (`tests/smoke/`) — class `TestHomepageSmoke`
 
@@ -180,7 +180,7 @@ Current totals: **6 test classes**, **16 scenario IDs**, **22 tests collected** 
 
 | Test ID | Title | Severity | Status | File |
 |---|---|---|---|---|
-| TC-PDP-003 | Store product page renders a price | Normal | Passing (local + CI) | `tests/cart/test_cart.py` |
+| TC-PDP-003 | Store product page renders a price | Normal | Passing locally / **Skipped in CI** (KI-005) | `tests/cart/test_cart.py` |
 
 **TC-PDP-003 — Store product price renders**
 - **Preconditions:** US store default; pinned product in stock.
@@ -192,7 +192,7 @@ Current totals: **6 test classes**, **16 scenario IDs**, **22 tests collected** 
 
 | Test ID | Title | Severity | Status | File |
 |---|---|---|---|---|
-| TC-CART-001 | Add a product to the cart and remove it (guest) | Critical | Passing (local + CI) | `tests/cart/test_cart.py` |
+| TC-CART-001 | Add a product to the cart and remove it (guest) | Critical | Passing locally / **Skipped in CI** (KI-005) | `tests/cart/test_cart.py` |
 
 **TC-CART-001 — Guest add-and-remove**
 - **Preconditions:** US store default; pinned product in stock.
@@ -293,6 +293,7 @@ The report includes pass/fail/skip status with reasons, per-test step trace (All
 | KI-002 | TC-PDP-001 (direct product page load) is skipped in CI because DJI's geo-redirect strips `/global` from non-Israel IPs and routes `/global/<slug>` back to the regional homepage. Direct product URL navigation requires an Israel-region IP. | Open | Skipped automatically where `CI=true`. TC-PDP-002 (search → product journey) covers the same surface area in any region and passes in both local and CI. |
 | KI-003 | TC-CART-001 and TC-PDP-003 depend on a pinned store product (`dji-fpv-remote-controller-3`) being in stock. If out of stock, the store renders "Notify Me" instead of "Add to Cart"/price, and the relevant `goto()` wait times out. | Open | Fails loud with a documented symptom (not a silent skip). Fix is a one-line update to `_PRODUCT_SLUG`. Tracked as a maintenance risk, not a defect. |
 | KI-004 | The DJI footer's **bottom strip** (Who We Are, Terms of Use, DJI Privacy Policy, etc.) renders inside a clipped container. The links report a box to `getBoundingClientRect` but Playwright's stricter visibility check treats them as not-visible, so `wait_for(state="visible")` and clicks time out. | Open (worked around) | TC-NAV-004's DDT targets are deliberately drawn from the footer's **upper column block** (Download Center, Trust Center, Media Center, Flagship Stores), which Playwright sees reliably. The bottom-strip links are knowingly not covered rather than carried as flaky. Documented here so it is a conscious omission, not an oversight. |
+| KI-005 | The **store geo-routes by IP** — TC-CART-001 and TC-PDP-003 are skipped in CI. The original "store is not IP-redirected, US-default everywhere" reading (STP ≤ v0.4) was an Israel-only coincidence: from our IL IP the store serves the US store, but CI runners get a different regional store (observed `store.dji.com/uk`), so the US-pinned `assert_us_region` guard fails there. Confirmed 2026-06-01 by a CI-side diagnostic plus the failure traceback showing `store.dji.com/uk`. | Open | Store tests **skipped when `CI=true`** (mirrors KI-002 on the marketing side) and run locally from Israel where the US default holds. The fail-loud guard is intentionally kept strict — it correctly caught the falsified premise — so the tests are scoped by environment rather than the guard relaxed. This is the store twin of KI-002. |
 
 **Note — region indicator locator (TC-SMK-002):** recon's DOM dump showed an "Other Regions" text span that *appears* present, but an in-Playwright `is_visible()` probe proved it sits in a hidden flyout. TC-SMK-002 therefore anchors on the visible `div.language-box` container. General lesson recorded for the suite: a DOM dump reports what *exists*; only a Playwright visibility probe reports what the test will treat as *visible*. Vet text/CSS anchors with a `count()`+`is_visible()` probe before shipping.
 
@@ -357,3 +358,4 @@ Per the STD's [Greenfield rollout plan](STD.md#10-deliverables):
 | 0.2 | 2026-05-11 | Added CI execution section. Added KI-002 (geo-redirect skip for TC-PDP-001). Updated TC-SMK-001 description to reflect region-tolerant assertions. |
 | 0.3 | 2026-05-19 | Added store coverage: `TestCart` (TC-CART-001) and store product page on `store.dji.com`. Added KI-003 (pinned store product stock dependency). Documented the marketing-vs-store environment split and US-store pinning. |
 | 0.4 | 2026-05-31 | Added `TestMainNavigation` (TC-NAV-001/002/003/004 incl. footer DDT), TC-SMK-002/003 (region indicator, footer sections), TC-SCH-004 (multi-query DDT) and TC-SCH-005 (empty-query negative), and TC-PDP-003 (store price, `TestStoreProductPage`). Added KI-004 (footer bottom-strip not visible to Playwright) and the region-indicator locator note. Updated KI-001 with the empty-query-is-stable finding. Linked the new Test Scenario Catalogue (`STD_Test_Scenarios.xlsx`). Marked Phases 2–4 done. |
+| 0.5 | 2026-06-01 | Corrected the store-region premise: the store **geo-routes by IP** (the earlier "not IP-redirected / US-default everywhere" reading was Israel-only). Added KI-005; TC-CART-001 and TC-PDP-003 are now skipped in CI (store twin of KI-002). Updated the CI count to 18 passed + 4 skipped, the environments table, and the §2 split. |

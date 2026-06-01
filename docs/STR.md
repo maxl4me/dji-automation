@@ -3,8 +3,8 @@
 **Project:** DJI Global Storefront — UI Automation Framework
 **Target Application:** https://www.dji.com/global and https://store.dji.com
 **Author:** Max Rybkin
-**Date:** 2026-05-31
-**Version:** 1.0
+**Date:** 2026-06-01
+**Version:** 1.1
 **Status:** Reporting the Block A end-of-phase run
 **Companion documents:** [STD.md](STD.md) · [STD_Test_Scenarios.xlsx](STD_Test_Scenarios.xlsx) · [STP.md](STP.md) · [CI.md](CI.md)
 
@@ -36,7 +36,7 @@ Out of scope per [STD §3.2](STD.md#32-out-of-scope): mobile, performance, secur
 | Python | 3.12.3 | 3.12 |
 | Browser | Chromium (Playwright bundled) | Chromium (Playwright bundled) |
 | Headless | No (headed) | Yes (`DJI_BROWSER__HEADLESS=true`) |
-| Region served | Israel — `dji.com/global` | US — `dji.com/` (geo-redirected); store US-default |
+| Region served | Israel — `dji.com/global` | US — `dji.com/` (geo-redirected); store gives the runner a non-US region (KI-005) |
 | Network | Residential broadband | Azure datacenter |
 
 The region difference is the single most consequential environmental variable and is the cause of the one local-vs-CI result delta (see §5).
@@ -64,17 +64,17 @@ collected 22 items
 ### 4.2 CI run
 
 ```
-✓  docs(stp): expand STP to v0.4 ...   tests   main   push   26733388001   2m16s
+✓  fix(store): skip US-pinned store tests in CI (KI-005) ...   tests   main   push   26749860681   59s
 ```
 
 | Outcome | Count |
 |---|---|
-| Passed | 20 |
-| Skipped | 2 (TC-SCH-002 — KI-001; TC-PDP-001 — KI-002) |
+| Passed | 18 |
+| Skipped | 4 (TC-SCH-002 — KI-001; TC-PDP-001 — KI-002; TC-CART-001 & TC-PDP-003 — KI-005) |
 | Failed | 0 |
-| Wall-clock | 2m16s |
+| Wall-clock | 59s |
 
-CI skips one test more than local: TC-PDP-001 is `skipif(CI=true)` because of the geo-redirect (KI-002). Everything else passes identically in both environments.
+CI skips three tests more than local. TC-PDP-001 skips for the marketing geo-redirect (KI-002); TC-CART-001 and TC-PDP-003 skip because the **store also geo-routes by IP** (KI-005) — CI runners get a non-US store (observed `store.dji.com/uk`), so the US-pinned region guard cannot hold there. All non-skipped tests pass identically in both environments.
 
 ### 4.3 Results by class
 
@@ -110,13 +110,15 @@ CI skips one test more than local: TC-PDP-001 is `skipif(CI=true)` because of th
 
 ## 5. Local vs CI Delta
 
-There is exactly **one** difference between the two environments, and it is expected and documented:
+Three tests differ between the two environments. All three are deliberate, conditional skips driven by DJI's IP-based geo-routing, and all are documented:
 
 | Test | Local | CI | Why |
 |---|---|---|---|
-| TC-PDP-001 (direct product load) | Passed | Skipped | DJI geo-redirects non-Israel IPs, stripping `/global/<slug>` back to the regional homepage. The CI runner is in Azure West US, so the direct product URL cannot resolve there. Skipped via `skipif(CI=true)` (KI-002). The same product surface is covered region-independently by TC-PDP-002, which passes in CI. |
+| TC-PDP-001 (direct product load) | Passed | Skipped | DJI geo-redirects non-Israel IPs, stripping `/global/<slug>` back to the regional homepage. The CI runner cannot resolve the direct product URL. `skipif(CI=true)` (KI-002). Covered region-independently by TC-PDP-002, which passes in CI. |
+| TC-CART-001 (guest cart) | Passed | Skipped | The store geo-routes by IP; CI runners get a non-US store (observed `store.dji.com/uk`), so the US-pinned region guard fails for an environmental reason. `skipif(CI=true)` (KI-005). Runs locally from Israel. |
+| TC-PDP-003 (store price) | Passed | Skipped | Same store geo-routing as TC-CART-001 (KI-005). |
 
-No test produced a *different pass/fail verdict* between environments — the only delta is a deliberate, conditional skip. This is the intended design of the region-tolerance strategy ([STP §2](STP.md#2-scope-reference)).
+No test produced a *different pass/fail verdict* between environments — every delta is a deliberate, conditional skip with a documented environmental cause. This is the intended design of the region-handling strategy ([STP §2](STP.md#2-scope-reference)): test the contract where it holds; skip-with-reason where the runner's IP makes the premise impossible.
 
 ## 6. Defects Found
 
@@ -132,8 +134,9 @@ Carried from [STP §9](STP.md#9-known-issues-and-skipped-tests). Status as of th
 |---|---|---|---|
 | KI-001 | DJI's no-results page has a render timing race for **random** queries; the `.no-data` block's visibility cannot be made reliable. | TC-SCH-002 skipped (1 skip, both environments). | Open, re-investigable. The empty-query path (TC-SCH-005) was found to render a **stable** server-side no-data state and passes reliably, narrowing the race to the random-string/client-pipeline path specifically. |
 | KI-002 | DJI geo-redirect strips `/global` from non-Israel IPs, so direct product-URL navigation only works from Israel. | TC-PDP-001 skipped in CI (the +1 CI skip). Passes locally. | Open. Same surface covered region-independently by TC-PDP-002. |
-| KI-003 | The pinned store product (`dji-fpv-remote-controller-3`) must be in stock for the store price and cart tests. | No effect this run — product was in stock; TC-PDP-003 and TC-CART-001 both passed. | Open (maintenance risk). Fails loud with a documented symptom if OOS; one-line slug fix. |
+| KI-003 | The pinned store product (`dji-fpv-remote-controller-3`) must be in stock for the store price and cart tests. | No effect this run — product was in stock; TC-PDP-003 and TC-CART-001 passed locally (they skip in CI per KI-005). | Open (maintenance risk). Fails loud with a documented symptom if OOS; one-line slug fix. |
 | KI-004 | The marketing footer's bottom-strip links render in a clipped container Playwright treats as not-visible. | No effect on results — TC-NAV-004 deliberately targets the upper-column footer links, all of which passed. | Open (worked around). Bottom-strip links knowingly not covered. |
+| KI-005 | The store geo-routes by IP; CI runners get a non-US store (observed `store.dji.com/uk`), so the US-pinned region guard cannot hold in CI. | Caused the only CI failures before the fix; now TC-CART-001 and TC-PDP-003 skip in CI and pass locally. | Open. Store twin of KI-002: `skipif(CI=true)`, run locally from Israel, guard kept strict (it correctly caught the falsified premise). |
 
 ## 8. Stability Assessment
 
@@ -163,7 +166,7 @@ All critical customer-facing paths identified in the STD are exercised by at lea
 
 ## 10. Conclusions
 
-- **The suite is green and stable.** 21/21 non-skipped tests pass locally; 20/20 pass in CI; zero failures; one intentional skip locally, two in CI (both documented).
+- **The suite is green and stable.** 21/21 non-skipped tests pass locally; 18/18 pass in CI; zero failures; one intentional skip locally, four in CI (all documented — three are IP-geo-routing skips, one is the no-results race).
 - **All critical paths from the STD are covered.** The framework exercises real flows across two distinct DJI properties (geo-redirected marketing site and US-pinned store) with region-appropriate strategies for each.
 - **No application defects** were found — appropriate for a portfolio framework against a production third-party site.
 - **The four known issues are understood and contained.** None reflects a framework defect; each is a documented target-behavior or environment constraint with a deliberate handling decision (skip-with-reason or fail-loud), in line with the project principle that a documented skip beats a flaky test.
@@ -185,3 +188,4 @@ In priority order, carried into the remaining phases:
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-05-31 | Initial report. Covers the Block A end-of-phase run: local 21 passed / 1 skipped (130.91s) and CI 20 passed / 2 skipped on commit `d05240c`. Zero failures, zero application defects. KI-001/002/003/004 reported. |
+| 1.1 | 2026-06-01 | Corrected CI results after the store geo-routing fix: CI is now 18 passed / 4 skipped (commit `ab26fad`). Added KI-005 (store geo-routes by IP; TC-CART-001 and TC-PDP-003 skip in CI). Updated §4.2, §5 (now three region-driven skips), §7, and the conclusions. Still zero failures, zero application defects. |
