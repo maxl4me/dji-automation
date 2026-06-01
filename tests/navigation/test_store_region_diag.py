@@ -80,3 +80,4 @@ def test_store_region_diagnostic() -> None:
     print("\n\n===== STORE REGION DIAGNOSTIC (this environment) =====")
     print(json.dumps(out, indent=2, ensure_ascii=False))
     print("===== END STORE REGION DIAGNOSTIC =====\n")
+    raise AssertionError("diagnostic complete - see STORE REGION DIAGNOSTIC block above")
