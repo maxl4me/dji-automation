@@ -3,15 +3,21 @@
 Distinct from the marketing-site HomePage: different subdomain, different
 navigation, different DOM. Entry point for the cart flow.
 
-Region behavior (verified by recon, 2026-05-19):
-  The store is NOT IP-redirected the way the marketing site is. It
-  defaults every visitor to the US store regardless of source IP. The
-  server sets a `region=US` cookie on first load; a separate
-  `ip_region=IL` cookie records the real IP-region but is deliberately
-  NOT acted upon. A fresh Playwright context (no cookies) therefore
-  lands on the US store deterministically — locally and in CI alike.
-  This is why the cart flow pins the US store and asserts region as a
-  FAIL-LOUD guard rather than tolerating drift.
+Region behavior (verified by recon 2026-05-19, corrected 2026-06-01):
+  From our LOCAL (Israel) IP the store serves the US store: it sets a
+  `region=US` cookie and records the real IP in a separate, unacted-upon
+  `ip_region=IL` cookie. A fresh Playwright context lands on the US store
+  from Israel deterministically, which is why the cart flow pins the US
+  store and asserts region as a FAIL-LOUD guard.
+
+  CORRECTION: the store DOES geo-route by IP. The original "not
+  IP-redirected" reading was an Israel-only coincidence (IL happens to
+  receive the US store). CI runners get a different regional store
+  (observed store.dji.com/uk), so assert_us_region fails there for an
+  environmental reason. The store tests are therefore skipped in CI
+  (see tests/cart/test_cart.py, STP KI-005) and run locally from Israel.
+  The guard below is intentionally NOT weakened — it correctly caught the
+  premise violation; the tests are scoped by environment instead.
 
 Cart isolation note:
   The cart is keyed to a `cart_uuid` cookie. A fresh context has no
@@ -20,7 +26,7 @@ Cart isolation note:
   is prevented by the existing per-test context fixture, not app logic.
 
 Region indicator text "United States (English / $ USD)" verified
-present in every store screenshot during recon.
+present in every US-store screenshot during recon.
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ log = get_logger(__name__)
 
 
 class StoreHomePage(BasePage):
-    """Landing page for store.dji.com (defaults to the US store)."""
+    """Landing page for store.dji.com (US store from an Israel IP)."""
 
     _store_base_url = ConfigReader.read_str("app", "store_base_url")
     _navigation_timeout = ConfigReader.read_int("timeouts", "navigation_timeout_ms")
@@ -51,7 +57,7 @@ class StoreHomePage(BasePage):
         # Matched as a substring; the wrapper has no stable hook.
         self._region_indicator = page.get_by_text("United States", exact=False).first
 
-    @allure.step("Open DJI Store (defaults to US store)")
+    @allure.step("Open DJI Store (defaults to US store from Israel IP)")
     def open(self) -> None:
         log.info("Navigating to %s", self._store_base_url)
         self.page.goto(
@@ -65,23 +71,23 @@ class StoreHomePage(BasePage):
 
     @allure.step("Assert we are on the US store (region guard)")
     def assert_us_region(self) -> None:
-        """Fail loud if the store is not defaulting to US.
+        """Fail loud if the store is not serving US.
 
-        The region guard from the design decision. We do NOT tolerate
-        region drift here (unlike the marketing-site tests) because the
-        store is not IP-redirected — US is the documented default in
-        every environment. If this fails, the store's default behavior
-        changed (or a region cookie leaked into this context) and the
-        pinning premise needs revisiting; failing loudly surfaces that
-        immediately rather than passing against the wrong store.
+        Kept strict on purpose. The store geo-routes by IP (see module
+        docstring): from Israel we get the US store, so locally this guard
+        holds. It correctly fails on CI runners that get another regional
+        store — which is why the store tests are skipped in CI (KI-005)
+        rather than this guard being relaxed. If this fails LOCALLY, the
+        store's behavior for our IP changed (or a region cookie leaked
+        into the context) and the pinning premise needs revisiting;
+        failing loudly surfaces that immediately.
         """
         assert self.is_visible(self._region_indicator), (
             "Store region indicator does not show 'United States'. The "
-            "store may have changed its default-region behavior, or a "
-            "region cookie leaked into this context. The cart flow pins "
-            "the US store on the premise that it is the default in all "
-            "environments — investigate before trusting this run. Check "
-            "the Allure trace for the actual region shown."
+            "store may have changed its behavior for this IP, or a region "
+            "cookie leaked into this context. The cart flow pins the US "
+            "store (served to our Israel IP); investigate before trusting "
+            "this run. Check the Allure trace for the actual region shown."
         )
 
     def current_url(self) -> str:

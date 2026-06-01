@@ -9,11 +9,21 @@ Two classes, both against the US store as a guest:
 
 Design decisions baked in (all evidence-backed):
 
-  * US store is PINNED, not region-tolerant. Unlike the marketing site,
-    the store is not IP-redirected: it defaults every visitor to the US
-    store and records the real IP-region in a separate, unacted-upon
-    cookie (region=US vs ip_region=IL, verified). US is therefore the
-    deterministic default locally and in CI.
+  * US store is PINNED, not region-tolerant. The store serves the US
+    store to our LOCAL (Israel) IP — verified: it sets region=US and
+    records the real IP in a separate, unacted-upon ip_region=IL cookie.
+    On that basis the cart flow pins the US store and asserts it with a
+    FAIL-LOUD guard rather than tolerating drift.
+
+  * SKIPPED IN CI (KI-005). The store DOES geo-route by IP, contrary to
+    the original Israel-only recon. GitHub Actions runners do not get the
+    US store — observed landing on store.dji.com/uk — so assert_us_region
+    fails there for an environmental reason, not a real regression. Both
+    store tests are therefore skipped when CI=true (same approach as
+    TC-PDP-001 / KI-002 on the marketing side). They run locally from
+    Israel, where the US-default premise holds. The fail-loud guard is
+    kept intact for local runs: it correctly caught this premise
+    violation, so we scope WHEN the tests run rather than weakening it.
 
   * Cart isolation is provided by the existing per-test context fixture.
     The cart is keyed to a cart_uuid cookie; a fresh context has none,
@@ -38,6 +48,7 @@ dependency because both load the same pinned product page.
 from __future__ import annotations
 
 import logging
+import os
 
 import allure
 import pytest
@@ -51,6 +62,19 @@ from framework.pages.store_product_page import StoreProductPage
 # discontinued or out of stock, tests fail loudly at product-page load —
 # update this slug (see module docstring + STP KI-003).
 _PRODUCT_SLUG = "dji-fpv-remote-controller-3"
+
+# CI environments set CI=true. The store geo-routes by IP and CI runners
+# do not get the US store (KI-005), so the US-pinned store tests are
+# skipped in CI and run locally from Israel. Mirrors _IS_CI in
+# tests/product/test_product_page.py (KI-002).
+_IS_CI = os.environ.get("CI", "").lower() == "true"
+
+_CI_SKIP_REASON = (
+    "Store geo-routes by IP: CI runners do not receive the US store "
+    "(observed store.dji.com/uk), so the US-pinned region guard fails for "
+    "an environmental reason, not a regression. Runs locally from Israel "
+    "where the US default holds. See STP KI-005 (store twin of KI-002)."
+)
 
 
 @pytest.fixture
@@ -74,8 +98,9 @@ def clean_cart(page):
 
 
 @pytest.mark.regression
+@pytest.mark.skipif(_IS_CI, reason=_CI_SKIP_REASON)
 class TestCart:
-    """Guest cart flows against store.dji.com."""
+    """Guest cart flows against store.dji.com. Skipped in CI (KI-005)."""
 
     @allure.title("Add a product to the cart and remove it (guest)")
     @allure.description(
@@ -119,8 +144,9 @@ class TestCart:
 
 
 @pytest.mark.regression
+@pytest.mark.skipif(_IS_CI, reason=_CI_SKIP_REASON)
 class TestStoreProductPage:
-    """Store product-page checks that are not cart actions."""
+    """Store product-page checks that are not cart actions. Skipped in CI (KI-005)."""
 
     @allure.title("Store product page renders a price")
     @allure.description(
