@@ -24,10 +24,10 @@ The test arc is documented end to end. Reviewers short on time: start with the S
 
 - **Page Object Model done properly** — selectors live in page objects and components, never in tests; tests read as business intent (open → act → assert).
 - **Data-driven testing** — parametrized suites for footer navigation and multi-query search (a third, store search, is designed in the catalogue).
-- **Two sites, two strategies** — the marketing site is IP-geo-redirected, so its tests assert the *contract* (region-tolerant). The store is not redirected, so its tests *pin* the US store as a fail-loud deterministic guard.
+- **Two sites, two strategies** — the marketing site is IP-geo-redirected, so its tests assert the *contract* (region-tolerant). The store also geo-routes by IP, so its tests *pin* the US store served to a local IP as a fail-loud guard and skip in CI (documented as a known issue).
 - **Deterministic synchronization** — no `time.sleep`; waits anchor to navigation events, DOM predicates, and Playwright auto-wait. A custom settle predicate handles DJI's search-results render.
-- **Flakiness contained, not hidden** — issues that can't be made reliable (a search render race, a geo-redirect, a clipped footer region) are documented as Known Issues with a deliberate skip-with-reason or fail-loud decision.
-- **CI you can trust** — GitHub Actions runs the headless suite on every push; the US-runner result tracks local exactly apart from one documented region skip.
+- **Flakiness contained, not hidden** — issues that can't be made reliable (a search render race, two geo-redirects, a clipped footer region) are documented as Known Issues with a deliberate skip-with-reason or fail-loud decision.
+- **CI you can trust** — GitHub Actions runs the headless suite on every push; the runner result tracks local exactly apart from documented region skips.
 - **Recon-first locators** — every new surface is inspected live (in-Playwright probes, not just DevTools) before a locator is written.
 
 ## Stack
@@ -39,35 +39,42 @@ The test arc is documented end to end. Reviewers short on time: start with the S
 - GitHub Actions (CI, green on `main`) + a portfolio Jenkinsfile
 - Ruff + Black + pre-commit; conventional commits
 
-## Quick start
+## Quick start (run from a fresh clone)
 
-Prerequisites: Python 3.12+, Allure CLI installed (`brew install allure` on macOS,
-or see the [Allure docs](https://allurereport.org/docs/install/)).
+Prerequisites: Python 3.12+, and the Allure CLI to view reports
+(`brew install allure` on macOS, `scoop install allure` on Windows, or see the
+[Allure docs](https://allurereport.org/docs/install/) for Linux).
 
 ```bash
-# 1. Create and activate a venv (in PyCharm: Project Interpreter -> Add)
+# 1. Clone
+git clone https://github.com/maxl4me/dji-automation.git
+cd dji-automation
+
+# 2. Create and activate a venv
 python -m venv .venv
 source .venv/bin/activate      # macOS/Linux
 # .venv\Scripts\activate       # Windows
 
-# 2. Install the framework in editable mode with dev tools
+# 3. Install the framework in editable mode with dev tools
 make install
 # or: pip install -e '.[dev]'
 
-# 3. Install Playwright's Chromium browser binary
+# 4. Install Playwright's Chromium browser binary
 make browsers
 # or: playwright install chromium
 
-# 4. Enable pre-commit hooks (one-time, per clone)
+# 5. (optional) enable pre-commit hooks if you'll be committing
 pre-commit install
 
-# 5. Run the smoke tests
+# 6. Run the smoke tests
 make smoke
 # or: pytest -m smoke
-
-# 6. Open the Allure report
-make allure-serve
 ```
+
+Note on region: a few tests are pinned to a specific region and skip outside it
+(see [Known issues in the STP](docs/STP.md#9-known-issues-and-skipped-tests)).
+Run from an Israel IP to execute the full suite; from elsewhere those tests skip
+cleanly and the rest run normally.
 
 ## Running tests
 
@@ -83,8 +90,47 @@ pytest -v            # verbose
 DJI_BROWSER__HEADLESS=true pytest
 ```
 
-Latest full run: **21 passed, 1 skipped** locally (~2m); **20 passed, 2 skipped** in CI
-(the extra skip is a geo-redirect-dependent test — see [`docs/STR.md`](docs/STR.md)).
+Latest full run: **21 passed, 1 skipped** locally (~2m); **18 passed, 4 skipped**
+in CI (the extra skips are region-dependent tests — see [`docs/STR.md`](docs/STR.md)).
+
+## Running the tests in CI
+
+CI runs automatically on every push to `main` and on PRs targeting `main`. You
+can also trigger a run by hand — handy when DJI is transiently flaky and you want
+to re-run without a no-op commit:
+
+- **From the web:** repo → **Actions** tab → **tests** workflow → **Run workflow**
+  → pick `main` → **Run workflow**.
+- **From the CLI** (GitHub CLI):
+  ```bash
+  gh workflow run tests.yml --ref main
+  gh run watch          # follow the run live
+  gh run list --limit 1 # check the latest run's status
+  ```
+
+The workflow installs dependencies (pip + Playwright Chromium, both cached),
+runs the suite headless, and uploads artifacts. A green check on `main` means the
+headless suite passed from the runner.
+
+## Viewing the Allure report from a CI run
+
+CI uploads the raw Allure **results** (not a pre-built HTML report) as an artifact
+on every run, pass or fail. To view the report:
+
+1. Open the workflow run: repo → **Actions** → click the run you want.
+2. Scroll to **Artifacts** and download **`allure-results`** (a zip). On a failed
+   run you'll also see **`playwright-traces`**.
+3. Unzip it, then generate and serve the report locally:
+   ```bash
+   unzip allure-results.zip -d allure-results
+   allure serve allure-results
+   ```
+   `allure serve` builds the HTML report and opens it in your browser. The report
+   includes pass/fail/skip status with reasons, per-step traces, and — on failures —
+   the Playwright trace, a screenshot, the DOM snapshot, and the page URL.
+
+To view a report from a **local** run instead, just run `make allure-serve` after
+running the suite (results are written to `allure-results/` automatically).
 
 ## Configuration
 
